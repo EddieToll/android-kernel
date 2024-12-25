@@ -1,0 +1,467 @@
+# SPDX-License-Identifier: GPL-2.0
+# Copyright (C) 2021 The Android Open Source Project
+
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("//build/bazel_common_rules/dist:dist.bzl", "copy_to_dist_dir")
+load("//build/kernel/kleaf:common_kernels.bzl", "define_common_kernels")
+load("//build/kernel/kleaf:constants.bzl", "X86_64_OUTS")
+load(
+    "//build/kernel/kleaf:kernel.bzl",
+    "checkpatch",
+    "ddk_headers",
+    "kernel_abi",
+    "kernel_build",
+    "kernel_images",
+    "kernel_modules_install",
+    "merged_kernel_uapi_headers",
+)
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("//common/rules_pkg/pkg:install.bzl", "pkg_install")
+load("//common/rules_pkg/pkg:mappings.bzl", "pkg_files", "strip_prefix")
+
+package(
+    default_visibility = [
+        "//visibility:public",
+    ],
+)
+
+cc_toolchain_suite( 
+    name = "ndk_toolchain",
+    toolchains = {
+        "arm64-v8a": ":arm64_v8a_toolchain",
+    }
+)
+
+cc_toolchain(
+    name = "arm64_v8a_toolchain",
+    toolchain_identifier = "aarch64-linux-android",
+    toolchain_config = ":arm64_v8a_config",
+    all_files = ":arm64_v8a_files",
+    ar_files = ":arm64_v8a_ar",
+    as_files = ":arm64_v8a_as",
+    compiler_files = ":arm64_v8a_gcc",
+    dwp_files = ":arm64_v8a_dwp",
+    linker_files = ":arm64_v8a_ld",
+    strip_files = ":arm64_v8a_strip",
+    objcopy_files = ":arm64_v8a_objcopy",
+)
+
+filegroup(
+    name = "arm64_v8a_files",
+    srcs = glob(["prebuilts/ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android*"]),
+)
+
+filegroup(
+    name = "arm64_v8a_ar",
+    srcs = ["prebuilts/ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-ar"],
+)
+
+filegroup(
+    name = "arm64_v8a_as",
+    srcs = ["prebuilts/ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-as"],
+)
+
+filegroup(
+    name = "arm64_v8a_gcc",
+    srcs = ["prebuilts/ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-clang"],
+)
+
+filegroup(
+    name = "arm64_v8a_ld",
+    srcs = ["prebuilts/ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-ld"],
+)
+
+filegroup(
+    name = "arm64_v8a_strip",
+    srcs = ["prebuilts/ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-strip"],
+)
+
+filegroup(
+    name = "arm64_v8a_dwp",
+    srcs = ["prebuilts/ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-dwp"],
+)
+
+filegroup(
+    name = "arm64_v8a_objcopy",
+    srcs = ["prebuilts/ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-objcopy"],
+)
+
+# Kernel ABI Configuration
+kernel_abi(
+    name = "gts4lwifi_abi",
+    kernel_build = ":gts4lwifi",
+    kmi_symbol_list_add_only = [
+        "common/android/abi_gki_aarch64_asus",
+        "common/android/abi_gki_aarch64_exynos",
+        "common/android/abi_gki_aarch64_fips140",
+        "common/android/abi_gki_aarch64_galaxy",
+        "common/android/abi_gki_aarch64_samsung",
+        "common/android/abi_gki_aarch64_qcom",
+        "common/android/abi_gki_aarch64_imx",
+        "common/android/abi_gki_aarch64_mtk",
+        "common/android/abi_gki_aarch64_rockchip",
+        "common/android/abi_gki_aarch64_sunxi",
+        "common/android/abi_gki_aarch64_type_visibility",
+        "common/android/abi_gki_protected_exports_aarch64",
+        "common/android/gki_aarch64_protected_modules",
+        "common/android/abi_gki_aarch64_protected",
+    ],
+    abi_definition_stg = "common/android/abi_gki_aarch64.stg",
+    kmi_enforced = True,
+    kernel_modules = [
+        "common/**",
+        "common/drivers/**",
+        "common/arch/arm/boot/**",
+        "common/arch/arm64/boot/**",
+        "common/sound/**",
+        "common/net/**",
+        "common/include/**",
+        "common/arch/arm64/boot/dts/**",
+        "common/arch/arm/boot/dts/**",
+    ],
+    kernel_modules_exclude_list = [],
+    exclude = [
+        "**/BUILD.bazel",
+        "**/*.bzl",
+        ".git/**",
+    ],
+)
+
+_GTS4LWIFI_MAKE_GOALS = [
+    "Image",
+    "Image.gz",
+    "modules",
+    "dtbs",
+]
+
+checkpatch(
+    name = "checkpatch",
+    checkpatch_pl = "scripts/checkpatch.pl",
+)
+
+# Kernel Build without KGDB
+kernel_build(
+    name = "gts4lwifi_no_kgdb",
+    srcs = glob(
+        [
+            "common/**",
+            "common/drivers/**",
+            "common/arch/arm/boot/**",
+            "common/arch/arm64/boot/**",
+            "common/sound/**",
+            "common/net/**",
+            "common/include/**",
+            "common/arch/arm64/boot/dts/**",
+            "common/arch/arm/boot/dts/**",
+        ],
+        exclude = [
+            "**/BUILD.bazel",
+            "**/*.bzl",
+            ".git/**",
+        ],
+    ),
+    outs = [
+        "Image",
+        "System.map",
+        "modules.builtin",
+        "modules.builtin.modinfo",
+        "vmlinux",
+        "vmlinux.symvers",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_magisk_dtb_Rev02.dtb",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_magisk_dtb_Rev04.dtb",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_magisk_dtb_Rev06.dtb",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_twrp_dtb_Rev02.dtb",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_twrp_dtb_Rev04.dtb",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_twrp_dtb_Rev06.dtb",
+    ],
+    arch = "arm64",
+    build_config = "arch/arm64/configs/gts4lwifi_defconfig",
+    make_goals = _GTS4LWIFI_MAKE_GOALS,
+    collect_unstripped_modules = True,
+    visibility = ["//visibility:private"],
+)
+
+# Kernel Build with KGDB
+kernel_build(
+    name = "gts4lwifi_with_kgdb",
+    srcs = glob(
+        [
+            "common/**",
+            "common/drivers/**",
+            "common/arch/arm/boot/**",
+            "common/arch/arm64/boot/**",
+            "common/sound/**",
+            "common/net/**",
+            "common/include/**",
+            "common/arch/arm64/boot/dts/**",
+            "common/arch/arm/boot/dts/**",
+        ],
+        exclude = [
+            "**/BUILD.bazel",
+            "**/*.bzl",
+            ".git/**",
+        ],
+    ),
+    outs = [
+        "Image",
+        "System.map",
+        "modules.builtin",
+        "modules.builtin.modinfo",
+        "vmlinux",
+        "vmlinux.symvers",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_magisk_dtb_Rev02.dtb",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_magisk_dtb_Rev04.dtb",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_magisk_dtb_Rev06.dtb",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_twrp_dtb_Rev02.dtb",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_twrp_dtb_Rev04.dtb",
+        "common/arch/arm64/boot/dts/Samsung_GTS4LWIFI_twrp_dtb_Rev06.dtb",
+    ],
+    arch = "arm64",
+    build_config = "arch/arm64/configs/gts4lwifi_defconfig",
+    make_goals = _GTS4LWIFI_MAKE_GOALS,
+    collect_unstripped_modules = True,
+    visibility = ["//visibility:private"],
+)
+
+# Ensure no name conflicts by renaming the environment rules
+
+# Kernel Environment without KGDB
+kernel_abi(
+    name = "gts4lwifi_no_kgdb_env_abi",
+    kernel_build = ":gts4lwifi_no_kgdb",
+    arch = "arm64",
+    kmi_symbol_list_add_only = [
+        "common/android/abi_gki_aarch64_asus",
+        "common/android/abi_gki_aarch64_exynos",
+        "common/android/abi_gki_aarch64_fips140",
+        "common/android/abi_gki_aarch64_galaxy",
+        "common/android/abi_gki_aarch64_samsung",
+        "common/android/abi_gki_aarch64_qcom",
+        "common/android/abi_gki_aarch64_imx",
+        "common/android/abi_gki_aarch64_mtk",
+        "common/android/abi_gki_aarch64_rockchip",
+        "common/android/abi_gki_aarch64_sunxi",
+        "common/android/abi_gki_aarch64_type_visibility",
+        "common/android/abi_gki_protected_exports_aarch64",
+        "common/android/gki_aarch64_protected_modules",
+        "common/android/abi_gki_aarch64_protected",
+    ],
+    abi_definition_stg = "common/android/abi_gki_aarch64.stg",
+    kmi_enforced = True,
+    kernel_modules = [
+        "common/**",
+        "common/drivers/**",
+        "common/arch/arm/boot/**",
+        "common/arch/arm64/boot/**",
+        "common/sound/**",
+        "common/net/**",
+        "common/include/**",
+        "common/arch/arm64/boot/dts/**",
+        "common/arch/arm/boot/dts/**",
+    ],
+    kernel_modules_exclude_list = [],
+    exclude = [
+        "**/BUILD.bazel",
+        "**/*.bzl",
+        ".git/**",
+    ],
+)
+
+# Kernel Environment with KGDB
+kernel_abi(
+    name = "gts4lwifi_with_kgdb_env_abi",
+    kernel_build = ":gts4lwifi_with_kgdb",
+    arch = "arm64",
+    kmi_symbol_list_add_only = [
+        "common/android/abi_gki_aarch64_asus",
+        "common/android/abi_gki_aarch64_exynos",
+        "common/android/abi_gki_aarch64_fips140",
+        "common/android/abi_gki_aarch64_galaxy",
+        "common/android/abi_gki_aarch64_samsung",
+        "common/android/abi_gki_aarch64_qcom",
+        "common/android/abi_gki_aarch64_imx",
+        "common/android/abi_gki_aarch64_mtk",
+        "common/android/abi_gki_aarch64_rockchip",
+        "common/android/abi_gki_aarch64_sunxi",
+        "common/android/abi_gki_aarch64_type_visibility",
+        "common/android/abi_gki_protected_exports_aarch64",
+        "common/android/gki_aarch64_protected_modules",
+        "common/android/abi_gki_aarch64_protected",
+    ],
+    abi_definition_stg = "common/android/abi_gki_aarch64.stg",
+    kmi_enforced = True,
+    kernel_modules = [
+        "common/**",
+        "common/drivers/**",
+        "common/arch/arm/boot/**",
+        "common/arch/arm64/boot/**",
+        "common/sound/**",
+        "common/net/**",
+        "common/include/**",
+        "common/arch/arm64/boot/dts/**",
+        "common/arch/arm/boot/dts/**",
+    ],
+    kernel_modules_exclude_list = [],
+    exclude = [
+        "**/BUILD.bazel",
+        "**/*.bzl",
+        ".git/**",
+    ],
+)
+
+# Alias for KGDB and Non-KGDB Builds
+alias(
+    name = "gts4lwifi",
+    actual = select({
+        "//build/kernel/kleaf:kgdb_is_true": "gts4lwifi_with_kgdb",
+        "//conditions:default": "gts4lwifi_no_kgdb",
+    }),
+)
+
+# Merged Kernel UAPI Headers
+merged_kernel_uapi_headers(
+    name = "gts4lwifi_merged_kernel_uapi_headers",
+    kernel_build = ":gts4lwifi",
+)
+
+# Kernel Images
+kernel_images(
+    name = "gts4lwifi_images",
+    build_initramfs = True,
+    kernel_build = ":gts4lwifi",
+    kernel_modules_install = ":gts4lwifi_modules_install",
+)
+
+# Copy to Distribution Directory
+copy_to_dist_dir(
+    name = "gts4lwifi_dist",
+    data = [
+        ":gts4lwifi",
+        ":gts4lwifi_images",
+        ":gts4lwifi_modules_install",
+        ":gts4lwifi_merged_kernel_uapi_headers",
+        # Mixed build: Additional GKI artifacts.
+        ":kernel_aarch64",
+        ":kernel_aarch64_modules",
+        ":kernel_aarch64_additional_artifacts",
+    ],
+    dist_dir = "out/gts4lwifi/dist",
+    flat = True,
+    log = "info",
+)
+
+# Define targets for distribution using pkg_files and pkg_install
+pkg_files(
+    name = "gts4lwifi_files",
+    srcs = [
+        ":gts4lwifi",
+        ":gts4lwifi_images",
+        ":gts4lwifi_modules_install",
+        "//common:kernel_aarch64_uapi_headers",
+        "//common:kernel_aarch64",
+        "//common:kernel_aarch64_modules",
+        "//common:kernel_aarch64_additional_artifacts",
+    ],
+    strip_prefix = strip_prefix.files_only(),
+    visibility = ["//visibility:private"],
+)
+
+pkg_install(
+    name = "gts4lwifi_dist_pkg",
+    srcs = [":gts4lwifi_files"],
+    visibility = ["//visibility:private"],
+)
+
+# allmodconfig build tests.
+# These are build tests only, so:
+# - outs are intentionally set to empty to not copy anything to DIST_DIR
+# - --allow-undeclared-modules must be used so modules are not declared or copied.
+# - No dist target because these are build tests. We don't care about the artifacts.
+
+# tools/bazel build --allow_undeclared_modules //common:kernel_aarch64_allmodconfig
+kernel_build(
+    name = "kernel_aarch64_allmodconfig",
+    # Hack to actually check the build.
+    # Otherwise, Bazel thinks that there are no output files, and skip building.
+    outs = [".config"],
+    build_config = "build.config.allmodconfig.aarch64",
+    visibility = ["//visibility:private"],
+)
+
+# DDK Headers
+# All headers. These are the public targets for DDK modules to use.
+alias(
+    name = "all_headers",
+    actual = "all_headers_aarch64",
+    visibility = ["//visibility:public"],
+)
+
+ddk_headers(
+    name = "all_headers_aarch64",
+    hdrs = [":all_headers_allowlist_aarch64"] + select({
+        "//build/kernel/kleaf:allow_ddk_unsafe_headers_set": [":all_headers_unsafe"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+)
+
+# Implementation details for DDK headers. The targets below cannot be directly
+# depended on by DDK modules.
+
+# DDK headers allowlist. This is the list of all headers and include
+# directories that are safe to use in DDK modules.
+ddk_headers(
+    name = "all_headers_allowlist_aarch64",
+    hdrs = [
+        ":all_headers_allowlist_aarch64_globs",
+        ":all_headers_allowlist_common_globs",
+    ],
+    # The list of include directories where source files can #include headers
+    # from. In other words, these are the `-I` option to the C compiler.
+    # These are prepended to LINUXINCLUDE.
+    linux_includes = [
+        "arch/arm64/include",
+        "arch/arm64/include/uapi",
+        "include",
+        "include/uapi",
+    ],
+    visibility = ["//visibility:private"],
+)
+
+# List of DDK headers allowlist that are glob()-ed to avoid changes of BUILD
+# file when the list of files changes. All headers in these directories
+# are safe to use.
+# These are separate filegroup targets so the all_headers_allowlist_* are
+# more friendly to batch BUILD file update tools like buildozer.
+
+# globs() for arm64 only
+filegroup(
+    name = "all_headers_allowlist_aarch64_globs",
+    srcs = glob(["arch/arm64/include/**/*.h"]),
+    visibility = ["//visibility:private"],
+)
+
+# globs() for all architectures
+filegroup(
+    name = "all_headers_allowlist_common_globs",
+    srcs = glob(["include/**/*.h"]),
+    visibility = ["//visibility:private"],
+)
+
+# DDK headers unsafe list. This is the list of all headers and include
+# directories that may be used during migration from kernel_module's, but
+# should be avoided in general.
+# Use with caution; items may:
+# - be removed without notice
+# - be moved into all_headers
+ddk_headers(
+    name = "all_headers_unsafe",
+    hdrs = [
+        "drivers/gpu/drm/virtio/virtgpu_trace.h",
+    ],
+    # The list of include directories where source files can #include headers
+    # from. In other words, these are the `-I` option to the C compiler.
+    # Unsafe include directories are appended to ccflags-y.
+    includes = [],
+    visibility = ["//visibility:private"],
+)
